@@ -45,6 +45,7 @@ use datafusion_physical_expr::{EquivalenceProperties, LexOrdering};
 use bytes::{Buf, Bytes};
 use datafusion_common::config::ConfigOptions;
 use futures::{ready, StreamExt, TryStreamExt};
+use object_store::buffered::BufWriter;
 use object_store::{GetOptions, GetResultPayload, ObjectStore};
 use tokio::io::AsyncWriteExt;
 use tokio::task::JoinSet;
@@ -460,7 +461,7 @@ pub async fn plan_to_csv(
 
         let mut stream = plan.execute(i, task_ctx.clone())?;
         join_set.spawn(async move {
-            let (_, mut multipart_writer) = storeref.put_multipart(&file).await?;
+            let mut buf_writer = BufWriter::new(storeref, file.clone());
             let mut buffer = Vec::with_capacity(1024);
             //only write headers on first iteration
             let mut write_headers = true;
@@ -470,15 +471,12 @@ pub async fn plan_to_csv(
                     .build(buffer);
                 writer.write(&batch)?;
                 buffer = writer.into_inner();
-                multipart_writer.write_all(&buffer).await?;
+                buf_writer.write_all(&buffer).await?;
                 buffer.clear();
                 //prevent writing headers more than once
                 write_headers = false;
             }
-            multipart_writer
-                .shutdown()
-                .await
-                .map_err(DataFusionError::from)
+            buf_writer.shutdown().await.map_err(DataFusionError::from)
         });
     }
 

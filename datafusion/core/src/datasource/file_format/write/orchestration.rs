@@ -22,7 +22,7 @@
 use std::sync::Arc;
 
 use super::demux::start_demuxer_task;
-use super::{create_writer, AbortableWrite, BatchSerializer};
+use super::{create_writer, BatchSerializer};
 use crate::datasource::file_format::file_compression_type::FileCompressionType;
 use crate::datasource::physical_plan::FileSinkConfig;
 use crate::error::Result;
@@ -38,7 +38,7 @@ use tokio::sync::mpsc::{self, Receiver};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::try_join;
 
-type WriterType = AbortableWrite<Box<dyn AsyncWrite + Send + Unpin>>;
+type WriterType = Box<dyn AsyncWrite + Send + Unpin>;
 type SerializerType = Arc<dyn BatchSerializer>;
 
 /// Serializes a single data stream in parallel and writes to an ObjectStore
@@ -48,7 +48,7 @@ type SerializerType = Arc<dyn BatchSerializer>;
 pub(crate) async fn serialize_rb_stream_to_object_store(
     mut data_rx: Receiver<RecordBatch>,
     serializer: Arc<dyn BatchSerializer>,
-    mut writer: AbortableWrite<Box<dyn AsyncWrite + Send + Unpin>>,
+    mut writer: WriterType,
 ) -> std::result::Result<(WriterType, u64), (WriterType, DataFusionError)> {
     let (tx, mut rx) =
         mpsc::channel::<JoinHandle<Result<(usize, Bytes), DataFusionError>>>(100);
@@ -172,19 +172,9 @@ pub(crate) async fn stateless_serialize_and_write_files(
 
     // Finalize or abort writers as appropriate
     for mut writer in finished_writers.into_iter() {
-        match any_errors {
-            true => {
-                let abort_result = writer.abort_writer();
-                if abort_result.is_err() {
-                    any_abort_errors = true;
-                }
-            }
-            false => {
-                writer.shutdown()
+        writer.shutdown()
                     .await
                     .map_err(|_| internal_datafusion_err!("Error encountered while finalizing writes! Partial results may have been written to ObjectStore!"))?;
-            }
-        }
     }
 
     if any_errors {

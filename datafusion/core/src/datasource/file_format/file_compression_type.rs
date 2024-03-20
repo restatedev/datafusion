@@ -40,6 +40,7 @@ use futures::StreamExt;
 #[cfg(feature = "compression")]
 use futures::TryStreamExt;
 use std::str::FromStr;
+use object_store::buffered::BufWriter;
 use tokio::io::AsyncWrite;
 #[cfg(feature = "compression")]
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -140,11 +141,11 @@ impl FileCompressionType {
         })
     }
 
-    /// Wrap the given `AsyncWrite` so that it performs compressed writes
+    /// Wrap the given `BufWriter` so that it performs compressed writes
     /// according to this `FileCompressionType`.
     pub fn convert_async_writer(
         &self,
-        w: Box<dyn AsyncWrite + Send + Unpin>,
+        w: BufWriter,
     ) -> Result<Box<dyn AsyncWrite + Send + Unpin>> {
         Ok(match self.variant {
             #[cfg(feature = "compression")]
@@ -161,7 +162,7 @@ impl FileCompressionType {
                     "Compression feature is not enabled".to_owned(),
                 ))
             }
-            UNCOMPRESSED => w,
+            UNCOMPRESSED => Box::new(w),
         })
     }
 
