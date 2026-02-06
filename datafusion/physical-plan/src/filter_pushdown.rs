@@ -44,7 +44,6 @@ use datafusion_common::{
 };
 use datafusion_physical_expr::{expressions::Column, utils::reassign_expr_columns};
 use datafusion_physical_expr_common::physical_expr::PhysicalExpr;
-use itertools::Itertools;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterPushdownPhase {
@@ -401,6 +400,17 @@ impl ChildFilterDescription {
         })
     }
 
+    /// Mark all parent filters as unsupported for this child.
+    pub fn all_unsupported(parent_filters: &[Arc<dyn PhysicalExpr>]) -> Self {
+        Self {
+            parent_filters: parent_filters
+                .iter()
+                .map(|f| PushedDownPredicate::unsupported(Arc::clone(f)))
+                .collect(),
+            self_filters: vec![],
+        }
+    }
+
     /// Add a self filter (from the current node) to be pushed down to this child.
     pub fn with_self_filter(mut self, filter: Arc<dyn PhysicalExpr>) -> Self {
         self.self_filters.push(filter);
@@ -476,15 +486,9 @@ impl FilterDescription {
         children: &[&Arc<dyn crate::ExecutionPlan>],
     ) -> Self {
         let mut desc = Self::new();
-        let child_filters = parent_filters
-            .iter()
-            .map(|f| PushedDownPredicate::unsupported(Arc::clone(f)))
-            .collect_vec();
         for _ in 0..children.len() {
-            desc = desc.with_child(ChildFilterDescription {
-                parent_filters: child_filters.clone(),
-                self_filters: vec![],
-            });
+            desc =
+                desc.with_child(ChildFilterDescription::all_unsupported(parent_filters));
         }
         desc
     }
